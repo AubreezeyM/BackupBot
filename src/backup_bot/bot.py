@@ -88,7 +88,7 @@ async def backup_thread(
 
     backup_file = await bot.backup(channel, format, include_usernames)
     await interaction.followup.send(
-        f"@{interaction.user.mention} Here's the thread backup you requested!", file=backup_file
+        f"{interaction.user.mention} Here's the thread backup you requested!", file=backup_file
     )
 
 
