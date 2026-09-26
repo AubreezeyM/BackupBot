@@ -68,6 +68,7 @@ backup_group = app_commands.Group(
 @bot.event
 async def on_ready() -> None:
     assert bot.user is not None
+    bot.tree.add_command(backup_group)
 
     print(f"Logged in as: {bot.user} (ID: {bot.user.id})")
     print("------------")
