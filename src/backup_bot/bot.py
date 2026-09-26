@@ -8,7 +8,6 @@ from discord import app_commands
 from discord.ext import commands
 from discord.ext.commands.context import Context
 
-
 class FormatOption(enum.Enum):
     Text = "txt"
     Markdown = "md"
@@ -65,13 +64,10 @@ bot = BackupBot()
 backup_group = app_commands.Group(
     name="backup", description="Backup text channel or thread!"
 )
-testing_guild = discord.Object(id=891483017900613652)
-
 
 @bot.event
 async def on_ready() -> None:
     assert bot.user is not None
-    bot.tree.add_command(backup_group)
 
     print(f"Logged in as: {bot.user} (ID: {bot.user.id})")
     print("------------")
@@ -91,25 +87,30 @@ async def backup_thread(
 
     backup_file = await bot.backup(channel, format, include_usernames)
     await interaction.followup.send(
-        f"@{interaction.user} Here's the thread backup you requested!", file=backup_file
+        f"@{interaction.user.mention} Here's the thread backup you requested!", file=backup_file
     )
 
 
-@bot.command(name="syncslash")
-async def sync(ctx: Context):
+async def check_if_owner(ctx: Context) -> bool:
     owner_id = os.environ.get("OWNER_USER_ID")
     if not owner_id:
-        print("!! Unable to sync commands as no owner ID was found in Environment! !!")
-        return
+        print("!! Unable to use command as no owner ID was found in Environment! !!")
+        return False
 
     if ctx.author.id != int(owner_id):
-        await ctx.send("Sorry! You must be the owner to use this command!")
-    else:
-        print("Syncing commands globally...")
-        await ctx.send("Syncing commands globally...")
-        await bot.tree.sync()
-        print("Commands synced globally.")
+        await ctx.send('Sorry, you need to be the bot owner to use this command.  If it\'s you, check the bots logs!')
+        return False
 
+    return True
+
+@bot.command(name="syncslash")
+async def sync(ctx: Context):
+    if await check_if_owner(ctx):
+        print("Syncing commands globally...")
+        bot.tree.add_command(backup_group)
+        await bot.tree.sync()
+        await ctx.send("Commands synced globally.")
+        return
 
 def start_bot():
     dotenv.load_dotenv()
