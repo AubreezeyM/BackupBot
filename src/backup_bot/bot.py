@@ -1,18 +1,30 @@
 import enum
+import logging
 import os
 
 import aiofiles
 import discord
 import dotenv
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ext.commands.context import Context
 
+logger = logging.getLogger("discord")
+logger.setLevel(logging.INFO)
+
+"""
+    Command Groups
+"""
+backup_group = app_commands.Group(
+    name="backup", description="Backup text channel or thread!"
+)
+
+"""
+    Bot specific classses
+"""
 class FormatOption(enum.Enum):
     Text = "txt"
     Markdown = "md"
-    # JSON = 'json' ### was a good idea in theory, couldn't find a use case in practice.  Keeping it just because.
-
 
 class BackupBot(commands.Bot):
     def __init__(self):
@@ -25,18 +37,28 @@ class BackupBot(commands.Bot):
 
         super().__init__(command_prefix="$", intents=intents)
 
+    async def setup_hook(self) -> None:
+        self.tree.add_command(backup_group)
+        await self.tree.sync()
+        logger.info("Commands synced globally.")
+
+        await self.cleanup_output_dir()
+
+        return await super().setup_hook()
+
     async def write_to_file(
         self,
         messages: list[discord.Message],
         format: FormatOption,
         include_usernames: bool | None,
     ) -> discord.File:
-        output_file = f"{self.output_dir}/output"
         match format:
             case FormatOption.Text:
-                output_file = output_file + ".txt"
+                extension = ".txt"
             case FormatOption.Markdown:
-                output_file = output_file + ".md"
+                extension = ".md"
+
+        output_file = f"{self.output_dir}/{extension}"
 
         async with aiofiles.open(output_file, "w") as file:
             if include_usernames:
@@ -59,17 +81,43 @@ class BackupBot(commands.Bot):
         ]
         return await self.write_to_file(messages, format, include_usernames)
 
+    async def check_if_owner(self, ctx: Context) -> bool:
+        owner_id = os.environ.get("OWNER_USER_ID")
+        if not owner_id:
+            print("!! Unable to use command as no owner ID was found in Environment! !!")
+            return False
+
+        if ctx.author.id != int(owner_id):
+            await ctx.send(
+                "Sorry, you need to be the bot owner to use this command.  If it's you, check the bots logs!"
+            )
+            return False
+
+        return True
+
+    @tasks.loop(minutes=60)
+    async def cleanup_output_dir(self):
+        outfiles = [
+            os.path.join(self.output_dir, file)
+            for file in os.listdir(self.output_dir)
+            if os.path.isfile(os.path.join(self.output_dir, file))
+        ]
+        for file in outfiles:
+            os.remove(file)
+        logger.info(f'Cleaned up output dir: {self.output_dir}')
+
+    @cleanup_output_dir.before_loop
+    async def before_cleanup(self):
+        await self.wait_until_ready()
 
 bot = BackupBot()
-backup_group = app_commands.Group(
-    name="backup", description="Backup text channel or thread!"
-)
 
+"""
+    Events and commands
+"""
 @bot.event
 async def on_ready() -> None:
     assert bot.user is not None
-    bot.tree.add_command(backup_group)
-
     print(f"Logged in as: {bot.user} (ID: {bot.user.id})")
     print("------------")
 
@@ -88,30 +136,16 @@ async def backup_thread(
 
     backup_file = await bot.backup(channel, format, include_usernames)
     await interaction.followup.send(
-        f"{interaction.user.mention} Here's the thread backup you requested!", file=backup_file
+        f"{interaction.user.mention} Here's the thread backup you requested!",
+        file=backup_file,
     )
 
+@bot.command(name="printcommands")
+async def printcommands(ctx: Context):
+    if await bot.check_if_owner(ctx):
+        for command in bot.tree.get_commands():
+            print(f"{command.qualified_name}\n")
 
-async def check_if_owner(ctx: Context) -> bool:
-    owner_id = os.environ.get("OWNER_USER_ID")
-    if not owner_id:
-        print("!! Unable to use command as no owner ID was found in Environment! !!")
-        return False
-
-    if ctx.author.id != int(owner_id):
-        await ctx.send('Sorry, you need to be the bot owner to use this command.  If it\'s you, check the bots logs!')
-        return False
-
-    return True
-
-@bot.command(name="syncslash")
-async def sync(ctx: Context):
-    if await check_if_owner(ctx):
-        print("Syncing commands globally...")
-        bot.tree.add_command(backup_group)
-        await bot.tree.sync()
-        await ctx.send("Commands synced globally.")
-        return
 
 def start_bot():
     dotenv.load_dotenv()
