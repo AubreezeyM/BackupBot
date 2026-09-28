@@ -22,9 +22,12 @@ backup_group = app_commands.Group(
 """
     Bot specific classses
 """
+
+
 class FormatOption(enum.Enum):
     Text = "txt"
     Markdown = "md"
+
 
 class BackupBot(commands.Bot):
     def __init__(self):
@@ -84,7 +87,9 @@ class BackupBot(commands.Bot):
     async def check_if_owner(self, ctx: Context) -> bool:
         owner_id = os.environ.get("OWNER_USER_ID")
         if not owner_id:
-            print("!! Unable to use command as no owner ID was found in Environment! !!")
+            print(
+                "!! Unable to use command as no owner ID was found in Environment! !!"
+            )
             return False
 
         if ctx.author.id != int(owner_id):
@@ -95,6 +100,18 @@ class BackupBot(commands.Bot):
 
         return True
 
+    def get_id_from_link(self, link: str) -> tuple[int | None, int | None]:
+        # https://discord.com/channels/891483017900613652/1486944125067460722
+        if not link.startswith("https://discord.com/channels/"):
+            return (None, None)
+
+        link_parts = link.split("/")
+        if not link_parts:
+            return (None, None)
+
+        # returns channel_id, guild_id as ints
+        return (int(link_parts[-1]), int(link_parts[-2]))
+
     @tasks.loop(minutes=60)
     async def cleanup_output_dir(self):
         outfiles = [
@@ -104,21 +121,24 @@ class BackupBot(commands.Bot):
         ]
         for file in outfiles:
             os.remove(file)
-        logger.info(f'Cleaned up output dir: {self.output_dir}')
+        logger.info(f"Cleaned up output dir: {self.output_dir}")
 
     @cleanup_output_dir.before_loop
     async def before_cleanup(self):
         await self.wait_until_ready()
+
 
 bot = BackupBot()
 
 """
     Events and commands
 """
+
+
 @bot.event
 async def on_ready() -> None:
     assert bot.user is not None
-    print(f"Logged in as: {bot.user} (ID: {bot.user.id})")
+    logger.info(f"Logged in as: {bot.user} (ID: {bot.user.id})")
     print("------------")
 
 
@@ -140,11 +160,57 @@ async def backup_thread(
         file=backup_file,
     )
 
+
+"""
+    This whole command feels ugly.  Idk.
+    Maybe I'm overthinking it, but I should come back to rewrite this at some point, probably.
+    TODO: this. lol. sorry future me.
+"""
+@backup_group.command(name="link", description="Backup a thread/channel from a link!")
+async def backup_link(
+    interaction: discord.Interaction,
+    link: str,
+    format: FormatOption,
+    include_usernames: bool | None,
+):
+    await interaction.response.defer()
+    if not interaction.guild:
+        await interaction.followup.send(
+            "Sorry, this command should be run from within a guild.", ephemeral=True
+        )
+        return
+
+    channel_id, guild_id = bot.get_id_from_link(link)
+    if not channel_id or not guild_id:
+        await interaction.followup.send(
+            "Something went wrong! Please verify that your link was correct."
+        )
+        return
+
+    channel = await bot.fetch_channel(channel_id)  # pyright: ignore[reportArgumentType] - Already checked for None case above.
+    if not isinstance(channel, discord.TextChannel or discord.Thread):
+        await interaction.followup.send(
+            "Was that a Text channel or a thread you sent? If so I failed to parse it.  Rip.",
+            ephemeral=True,
+        )
+        return
+
+    backup_file = await bot.backup(channel, format, include_usernames)
+    await interaction.followup.send(
+        f"{interaction.user.mention} Here's the backup you requested!", file=backup_file
+    )
+
+
 @bot.command(name="printcommands")
 async def printcommands(ctx: Context):
     if await bot.check_if_owner(ctx):
-        for command in bot.tree.get_commands():
-            print(f"{command.qualified_name}\n")
+        commands_list = bot.tree.get_commands()
+        for command in commands_list:
+            if isinstance(command, app_commands.Group):
+                for com in command.commands:
+                    print(f"{command.name}: {com.name}")
+            else:
+                print(command.name)
 
 
 def start_bot():
