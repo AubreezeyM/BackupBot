@@ -166,6 +166,8 @@ async def backup_thread(
     Maybe I'm overthinking it, but I should come back to rewrite this at some point, probably.
     TODO: this. lol. sorry future me.
 """
+
+
 @backup_group.command(name="link", description="Backup a thread/channel from a link!")
 async def backup_link(
     interaction: discord.Interaction,
@@ -213,6 +215,7 @@ async def printcommands(ctx: Context):
                 print(command.name)
 
 
+# TODO: Maybe move this into __init__.py? Idk.
 def start_bot():
     dotenv.load_dotenv()
     token = os.environ.get("DISCORD_BOT_TOKEN")
